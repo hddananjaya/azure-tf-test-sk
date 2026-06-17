@@ -13,6 +13,7 @@ General migration tips for moving workloads from Azure to **Amazon ECS** and **A
 | Azure Durable Functions | Step Functions + Lambda | Stateful orchestration patterns |
 | Azure Service Bus | SQS / SNS / EventBridge | Queue vs pub/sub vs event routing |
 | Azure Key Vault | AWS Secrets Manager / SSM Parameter Store | Store secrets outside task definitions |
+| Azure SQL Database / PostgreSQL / MySQL | Amazon RDS | Managed relational DB; engine-for-engine mapping |
 | Azure Monitor / App Insights | CloudWatch + X-Ray | Logs, metrics, traces |
 
 ---
@@ -212,6 +213,68 @@ After the task, **`ResultPath`** merges the Lambda response into state at `$.res
 
 ---
 
+## RDS Migration Tips
+
+### 1. Engine mapping
+
+| Azure | RDS engine |
+|-------|------------|
+| Azure SQL Database | RDS for SQL Server |
+| Azure Database for PostgreSQL | RDS for PostgreSQL |
+| Azure Database for MySQL | RDS for MySQL |
+| Azure Database for MariaDB | RDS for MariaDB |
+
+Match major version, collation, and timezone settings before cutover.
+
+### 2. Migration approaches
+
+| Approach | Best for |
+|----------|----------|
+| **AWS DMS** (Database Migration Service) | Ongoing replication with minimal downtime |
+| **Native backup/restore** (`.bak`, `pg_dump`, `mysqldump`) | Smaller DBs or one-time bulk move |
+| **RDS snapshot + share/copy** | Same-engine moves already on AWS |
+
+Typical flow: provision RDS → replicate or restore → validate row counts and app queries → cutover DNS/connection string → keep Azure read-only until soak period ends.
+
+### 3. Networking and access from ECS
+
+- Place RDS in **private subnets**; do not assign a public IP in production.
+- Security group: allow inbound **only** from the ECS task security group on the DB port (1433, 5432, 3306, etc.).
+- Use a **DB subnet group** spanning at least two AZs for Multi-AZ.
+- Optional: **RDS Proxy** in front of RDS for connection pooling from many Fargate tasks.
+
+### 4. Credentials and connection strings
+
+- Store host, port, database name, username, and password in **Secrets Manager** (not task env vars in git).
+- Reference the secret in the ECS task definition `secrets` block; apps read `DATABASE_URL` or individual vars at startup.
+- Rotate credentials with Secrets Manager rotation; update ECS tasks to pick up new values on redeploy.
+
+Example task definition secret reference:
+
+```json
+"secrets": [{
+  "name": "DATABASE_URL",
+  "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789:secret:prod/rds/app:DATABASE_URL::"
+}]
+```
+
+### 5. Operations checklist
+
+- Enable **automated backups** and set `backup-retention` to match your RPO.
+- Turn on **Multi-AZ** for production failover.
+- Add **read replicas** if Azure used geo/read scaling (Cosmos-style patterns stay on DynamoDB; standard SQL read scale maps to replicas).
+- Monitor with **CloudWatch** (`CPUUtilization`, `FreeStorageSpace`, `DatabaseConnections`) and enable **Enhanced Monitoring** / Performance Insights for slow-query tuning.
+- Test failover and restore from snapshot before decommissioning Azure.
+
+### 6. Common pitfalls
+
+- ECS tasks in private subnets with no route to RDS (wrong SG or subnet group).
+- Hard-coded Azure connection strings left in container images or Step Functions payloads.
+- Engine version or charset mismatch causing silent data truncation after import.
+- Undersized storage/IOPS — RDS storage autoscaling helps, but plan baseline IOPS up front.
+
+---
+
 ## Recommended Migration Order
 
 1. **Inventory** — List Azure resources, dependencies, secrets, and SLAs.
@@ -228,6 +291,7 @@ After the task, **`ResultPath`** merges the Lambda response into state at `$.res
 ## Quick Validation Checklist
 
 - [ ] Images in ECR, ECS tasks pull successfully
+- [ ] RDS reachable from ECS tasks (SG + private subnet); credentials in Secrets Manager
 - [ ] Secrets in Secrets Manager / SSM, not in plain env vars
 - [ ] ALB health checks passing, tasks in private subnets
 - [ ] CloudWatch Logs receiving container output
