@@ -54,6 +54,57 @@ const ecsTips = [
   },
 ];
 
+const cognitoTips = [
+  {
+    id: 'cognito-mapping',
+    category: 'Cognito',
+    azure: 'Azure AD / Entra app registration',
+    aws: 'Cognito User Pool app client',
+    tip: 'Map client ID, redirect URIs, and scopes. Federate Entra via SAML/OIDC if full user migration is risky.',
+    priority: 'high',
+  },
+  {
+    id: 'cognito-alb',
+    category: 'Cognito',
+    azure: 'App Service Easy Auth / Front Door + Entra',
+    aws: 'ALB Authenticate Cognito action',
+    tip: 'Protect ECS services at the load balancer. Ensure traffic cannot bypass ALB to tasks.',
+    priority: 'high',
+  },
+  {
+    id: 'cognito-jwt',
+    category: 'Cognito',
+    azure: 'MSAL token validation in API',
+    aws: 'aws-jwt-verify + Cognito issuer',
+    tip: 'Validate iss, aud, exp, and scopes in API middleware. Never trust unverified JWT claims.',
+    priority: 'high',
+  },
+  {
+    id: 'cognito-b2c',
+    category: 'Cognito',
+    azure: 'Azure AD B2C user flows',
+    aws: 'Cognito hosted UI + Lambda triggers',
+    tip: 'Replace custom policies with PreSignUp, CustomMessage, and PreTokenGeneration triggers.',
+    priority: 'medium',
+  },
+  {
+    id: 'cognito-groups',
+    category: 'Cognito',
+    azure: 'App roles / Entra groups',
+    aws: 'Cognito groups + RBAC claims',
+    tip: 'Emit cognito:groups in tokens and enforce authorization in app code or Identity Pool role mapping.',
+    priority: 'medium',
+  },
+  {
+    id: 'cognito-migration',
+    category: 'Cognito',
+    azure: 'Entra user directory',
+    aws: 'Bulk import or federation',
+    tip: 'Use CSV import, JIT Lambda, or dual-login period. Plan password reset if hashes cannot move.',
+    priority: 'medium',
+  },
+];
+
 const stepFunctionsTips = [
   {
     id: 'sfn-mapping',
@@ -113,6 +164,8 @@ const serviceMap = [
   { azure: 'Durable Functions', aws: 'Step Functions + Lambda' },
   { azure: 'Service Bus', aws: 'SQS / SNS / EventBridge' },
   { azure: 'Key Vault', aws: 'Secrets Manager / SSM' },
+  { azure: 'Azure AD / Entra ID', aws: 'Cognito User Pools' },
+  { azure: 'Azure AD B2C', aws: 'Cognito User Pools' },
 ];
 
 const migrationChecklist = [
@@ -121,6 +174,7 @@ const migrationChecklist = [
   'ECS tasks in private subnets with proper SG rules',
   'ALB health checks passing',
   'CloudWatch Logs receiving container output',
+  'Cognito login, token refresh, and API JWT checks passing',
   'Step Functions state machine executes end-to-end',
   'Retry/Catch blocks tested with injected failures',
   'Autoscaling verified under load',
@@ -167,8 +221,9 @@ function main() {
 
   validateAll(ecsTips, 'ECS tips');
   validateAll(stepFunctionsTips, 'Step Functions tips');
+  validateAll(cognitoTips, 'Cognito tips');
 
-  const allTips = [...ecsTips, ...stepFunctionsTips];
+  const allTips = [...ecsTips, ...stepFunctionsTips, ...cognitoTips];
   const priorities = groupByPriority(allTips);
   console.log(`✓ Priority breakdown: high=${priorities.high}, medium=${priorities.medium}, low=${priorities.low || 0}`);
 
@@ -177,6 +232,7 @@ function main() {
 
   printSection('ECS Migration Tips', ecsTips);
   printSection('Step Functions Migration Tips', stepFunctionsTips);
+  printSection('Cognito Migration Tips', cognitoTips);
 
   console.log('\n── Service Mapping ──');
   serviceMap.forEach((m) => console.log(`  ${m.azure} → ${m.aws}`));

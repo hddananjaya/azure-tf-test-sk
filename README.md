@@ -14,6 +14,8 @@ General migration tips for moving workloads from Azure to **Amazon ECS** and **A
 | Azure Service Bus | SQS / SNS / EventBridge | Queue vs pub/sub vs event routing |
 | Azure Key Vault | AWS Secrets Manager / SSM Parameter Store | Store secrets outside task definitions |
 | Azure SQL Database / PostgreSQL / MySQL | Amazon RDS | Managed relational DB; engine-for-engine mapping |
+| Azure AD / Microsoft Entra ID | Amazon Cognito User Pools (+ optional federation) | Workforce SSO; can federate Entra instead of replacing |
+| Azure AD B2C | Amazon Cognito User Pools | Customer-facing sign-up/sign-in and social IdPs |
 | Azure Monitor / App Insights | CloudWatch + X-Ray | Logs, metrics, traces |
 
 ---
@@ -275,11 +277,119 @@ Example task definition secret reference:
 
 ---
 
+## Cognito Migration Tips
+
+### 1. What maps where
+
+| Azure | Cognito |
+|-------|---------|
+| App registration (client ID / secret) | **User pool app client** |
+| Tenant ID / authority URL | **User pool ID** + issuer `https://cognito-idp.<region>.amazonaws.com/<poolId>` |
+| Redirect URIs / logout URLs | App client callback/sign-out URLs |
+| API permissions / scopes | **Resource server** + custom scopes (e.g. `api/read`) |
+| App roles / group claims | **Cognito groups** (included in ID/access token via `cognito:groups`) |
+| Conditional Access / MFA | User pool **MFA**, advanced security, WAF on ALB |
+| B2C user flows (sign-up, reset password) | Hosted UI + **Lambda triggers** (`PreSignUp`, `CustomMessage`, etc.) |
+| MSAL (`acquireTokenSilent`) | Amplify Auth, `aws-jwt-verify`, or OIDC library against Cognito/OIDC |
+
+**Two patterns:**
+
+- **Replace** — users live in Cognito; migrate passwords via bulk import or reset-on-first-login.
+- **Federate** — keep Entra as IdP; Cognito (or ALB/API Gateway) trusts Entra via **SAML/OIDC**. Lower cutover risk for enterprise SSO.
+
+### 2. ECS + ALB (common web app pattern)
+
+Protect an ECS service behind ALB with Cognito **before** traffic hits your containers:
+
+1. Create a **User pool** + app client (authorization code + PKCE for SPAs).
+2. Create an **ALB listener rule** with action **Authenticate Cognito** → then forward to target group.
+3. ALB sets session cookies; your app receives `X-Amzn-Oidc-*` headers (identity token claims).
+
+Containers can trust ALB-injected headers **only** if traffic cannot bypass the ALB (no direct task IP access).
+
+### 3. API / microservices (JWT validation)
+
+For APIs on ECS, API Gateway, or Lambda:
+
+- Issue **access tokens** (JWT) from Cognito with audience = app client or custom resource-server scope.
+- Validate in middleware with **`aws-jwt-verify`** (Node) or equivalent — check `iss`, `aud`, `exp`, and required scopes/groups.
+- Do **not** parse JWTs without signature verification; do not trust client-sent user IDs without token validation.
+
+Example env vars on ECS (non-secret):
+
+```json
+"environment": [
+  { "name": "COGNITO_REGION", "value": "us-east-1" },
+  { "name": "COGNITO_USER_POOL_ID", "value": "us-east-1_AbCdEfGhI" },
+  { "name": "COGNITO_APP_CLIENT_ID", "value": "1a2b3c4d5e6f7g8h9i0j" }
+]
+```
+
+Store app client **secret** (if used) in Secrets Manager; prefer **public clients + PKCE** for browser/mobile apps.
+
+### 4. User and group migration
+
+| Method | When to use |
+|--------|-------------|
+| **CSV bulk import** | One-time move; passwords must be re-set unless importing hash (limited formats) |
+| **Federation to Entra** | Keep Azure passwords/MFA during transition |
+| **Just-in-time (JIT)** | `PreAuthentication` / `PostAuthentication` Lambda creates local user on first SSO login |
+| **Dual login period** | Entra + Cognito both accepted; deprecate Azure app registration after soak |
+
+Map Azure **security groups / app roles** to Cognito **groups**, then to IAM policies (Identity Pool) or app-level RBAC from `cognito:groups` claims.
+
+### 5. Cognito Identity Pools (optional)
+
+Use when apps need **AWS credentials** in the browser or on device (S3 upload, direct AWS API):
+
+- **User pool** = who the user is (authentication).
+- **Identity pool** = temporary AWS creds (authorization to AWS resources).
+
+Map Azure “managed identity for workloads” separately: ECS tasks use **IAM task roles**, not Identity Pools.
+
+### 6. Lambda triggers (B2C parity)
+
+Replace B2C custom policies with User Pool Lambda triggers:
+
+| Trigger | Typical use |
+|---------|-------------|
+| `PreSignUp` | Auto-confirm, block disposable domains, sync to CRM |
+| `PostConfirmation` | Seed RDS profile row, send welcome event to EventBridge |
+| `PreTokenGeneration` | Inject custom claims (tenant ID, subscription tier) |
+| `CustomMessage` | Branded email/SMS for verification and reset |
+| `UserMigration` | Authenticate against legacy Azure DB on first login |
+
+Keep triggers **idempotent** and fast — they run on every sign-in or token issue.
+
+### 7. Step Functions and machine-to-machine
+
+- **Human steps** — user JWT from Cognito; API validates token before starting execution.
+- **Service-to-service** — prefer **IAM roles** (ECS task role, Lambda execution role) over embedding Cognito client credentials in state machines.
+- If OAuth client credentials are required, store client secret in Secrets Manager and fetch in Lambda at runtime — never in state machine JSON.
+
+### 8. Operations checklist
+
+- Enable **Advanced Security** (compromised credentials, adaptive auth) for production pools.
+- Configure **token lifetimes** (access/id/refresh) to match former Azure token policies.
+- Set **domain** (Cognito hosted domain or custom domain + ACM cert) before cutover DNS.
+- Log auth events to **CloudWatch** (`UserAuthentication`, `ForgotPassword`, etc.) and alarm on anomaly spikes.
+- Test sign-up, sign-in, MFA, password reset, token refresh, and **global sign-out** before decommissioning Entra app.
+
+### 9. Common pitfalls
+
+- Redirect URI mismatch (`http` vs `https`, trailing slash) — #1 login failure after migration.
+- Validating tokens against wrong **issuer** or **pool ID** after multi-region deploy.
+- ALB authenticate action without HTTPS-only listeners — session cookies exposed.
+- Putting Cognito **client secrets** in ECS task definitions or Step Functions input.
+- Assuming Cognito groups automatically grant IAM access — you must map groups in Identity Pool or enforce RBAC in app code.
+
+---
+
 ## Recommended Migration Order
 
 1. **Inventory** — List Azure resources, dependencies, secrets, and SLAs.
 2. **Network** — Stand up VPC, subnets, security groups, endpoints.
-3. **Identity** — Map Azure AD apps to IAM roles (OIDC/SAML if needed).
+3. **Identity** — Stand up Cognito user pool (or Entra federation), app clients, groups; wire ALB authenticate or API JWT validation.
 4. **Data** — Migrate databases and blob storage first (often the longest pole).
 5. **Containers** — Push images to ECR, create ECS task definitions and services.
 6. **Workflows** — Port Logic Apps / Durable Functions to Step Functions state machines.
@@ -292,6 +402,7 @@ Example task definition secret reference:
 
 - [ ] Images in ECR, ECS tasks pull successfully
 - [ ] RDS reachable from ECS tasks (SG + private subnet); credentials in Secrets Manager
+- [ ] Cognito sign-in, token refresh, and API JWT validation tested; groups/scopes match Azure roles
 - [ ] Secrets in Secrets Manager / SSM, not in plain env vars
 - [ ] ALB health checks passing, tasks in private subnets
 - [ ] CloudWatch Logs receiving container output
