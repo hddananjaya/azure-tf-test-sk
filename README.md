@@ -117,14 +117,55 @@ Logic App connectors map to Step Functions **Task** states invoking AWS services
 
 Prefer **AWS SDK service integrations** (`arn:aws:states:::sqs:sendMessage`) over Lambda wrappers when possible — fewer moving parts, built-in retries.
 
-### 4. State machine design
+### 4. How Lambda params load
+
+When a **Task** state invokes Lambda, Step Functions builds the payload **before** `Invoke` runs:
+
+1. **`InputPath`** (optional) — slices the current state input (default: `$`, the whole object).
+2. **`Parameters`** — maps that slice into the Lambda `Payload` using JSONPath and intrinsic functions.
+3. **Lambda handler** — receives the payload as the `event` argument (Node: `exports.handler = async (event) => …`).
+
+Example state:
+
+```json
+"ProcessOrder": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::lambda:invoke",
+  "Parameters": {
+    "FunctionName": "process-order",
+    "Payload": {
+      "orderId.$": "$.order.id",
+      "customer.$": "$.customer"
+    }
+  },
+  "ResultSelector": {
+    "status.$": "$.Payload.status"
+  },
+  "ResultPath": "$.result",
+  "Next": "Done"
+}
+```
+
+With execution input `{ "order": { "id": "123" }, "customer": "alice" }`, Lambda's `event` is:
+
+```json
+{ "orderId": "123", "customer": "alice" }
+```
+
+After the task, **`ResultPath`** merges the Lambda response into state at `$.result` (here, only `status` via `ResultSelector`).
+
+- Keys ending in `.$` pull values from the input; static keys pass literals.
+- Without `Parameters.Payload`, the filtered input is sent as-is.
+- **`OutputPath`** (default `$`) controls what the *next* state receives.
+
+### 5. State machine design
 
 - Keep states **small and idempotent** — Step Functions will retry on transient failures.
 - Use **Choice** states instead of deeply nested conditionals.
 - Pass data with `InputPath`, `OutputPath`, `ResultPath`, and `Parameters` — avoid huge payloads (256 KB state limit).
 - Store large blobs in S3; pass only S3 keys/URIs in state input.
 
-### 5. Error handling
+### 6. Error handling
 
 ```json
 "Retry": [{
@@ -143,26 +184,26 @@ Prefer **AWS SDK service integrations** (`arn:aws:states:::sqs:sendMessage`) ove
 - Map Azure Logic App "run after" failure branches to `Catch` blocks.
 - Use **Dead Letter Queues** (SQS DLQ) for tasks that must not be lost.
 
-### 6. Long-running and human tasks
+### 7. Long-running and human tasks
 
 - Durable Functions `waitForExternalEvent` → Step Functions **callback pattern** (`.waitForTaskToken`).
 - Human approval flows → `waitForTaskToken` + API Gateway endpoint that calls `SendTaskSuccess` / `SendTaskFailure`.
 - Timers → `Wait` state with `Seconds`, `Timestamp`, or `SecondsPath`.
 
-### 7. Observability
+### 8. Observability
 
 - Enable **CloudWatch Logs** on the state machine (ALL or ERROR level).
 - Use **X-Ray** tracing for end-to-end visibility.
 - Replace Application Insights dependency tracking with structured logging in Lambda tasks.
 - Set CloudWatch alarms on `ExecutionsFailed`, `ExecutionsTimedOut`, and `ExecutionThrottled`.
 
-### 8. Security
+### 9. Security
 
 - Use **IAM roles** per state machine — least privilege for each integration.
 - Encrypt state machine definitions and execution history if handling sensitive data.
 - For cross-account workflows, use resource-based policies or separate state machines per account.
 
-### 9. Common pitfalls
+### 10. Common pitfalls
 
 - Exceeding the **256 KB** execution input/output limit — offload to S3.
 - Non-idempotent Lambda tasks combined with retries causing duplicate side effects.
