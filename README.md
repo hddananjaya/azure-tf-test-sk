@@ -420,3 +420,194 @@ node test.js
 ```
 
 The test file validates migration tip structures and prints a quick reference summary.
+
+
+
+Skip to Main Content
+
+
+Search
+[Option+S]
+
+16
+
+
+
+United States (N. Virginia)
+
+skillfully-llm-dev (835072332483)
+AdministratorAccess/akila.dananjaya@skillful.ly
+
+Amazon Elastic Container Service
+Clusters
+hirednow-backend-prod-cluster
+Services
+rest-api-service-2
+Tasks
+Amazon Elastic Container Service
+Clusters
+hirednow-backend-prod-cluster
+Services
+rest-api-service-2
+Tasks
+
+
+
+
+
+Amazon Elastic Container Service
+Favourites and recents
+New
+Express Mode
+Clusters
+Namespaces
+Task definitions
+Daemon task definitions
+Account settings
+AWS Resource Explorer
+AWS Batch
+Amazon ECR
+Repositories
+Online learning workshop
+Documentation
+Discover products
+Subscriptions
+Tell us what you think
+rest-api-service-2 Info
+Last updated
+17 June 2026, 12:28 (UTC+5:30)
+
+Refresh completed
+
+
+Add to favourites
+Delete service
+Update service
+
+Service overview Info
+Status
+Active
+Tasks (1 Desired)
+0 pending
+|
+1 running
+Task definition: revision
+hirednow-backend-prod-td:30
+Deployment status
+Success
+
+Health and metrics
+Tasks
+Logs
+Deployments
+Events
+Configuration and networking
+Service auto scaling
+Event history
+Tags
+
+Tasks (1/1)
+Last updated
+17 June 2026, 12:29 (UTC+5:30)
+
+
+Stop
+Filter desired status
+
+Any desired status
+Filter launch type
+
+Any launch type
+
+1
+
+
+Task selection	
+Task
+	
+Last status
+	
+Desired status
+	
+Task definition
+	
+Health status
+	
+Started by
+	
+Started at
+	
+Container instances
+	
+Launch type
+	
+Platform version
+	
+CPU
+	
+Memory
+	
+Created at
+	
+Private IP
+	
+Public IP
+
+Task selection	
+Task
+	
+Last status
+	
+Desired status
+	
+Task definition
+	
+Health status
+	
+Started by
+	
+Started at
+	
+Container instances
+	
+Launch type
+	
+Platform version
+	
+CPU
+	
+Memory
+	
+Created at
+	
+Private IP
+	
+Public IP
+
+1b6d3eb6e5d9404b96687eae1ade9f8f
+
+Running
+Running
+hirednow-backend-prod-td:30
+Unknown
+ecs-svc/6972510522496468118
+8 hours ago
+-
+Fargate
+1.4.0
+2 vCPU
+4 GiB
+8 hours ago
+172.31.46.188
+54.174.71.244
+Containers for task 1b6d3eb6e5d9404b96687eae1ade9f8f
+
+
+CloudShell
+Feedback
+© 2026, Amazon Web Services, Inc. or its affiliates.
+Privacy
+Terms
+Cookie preferences
+Last updated 17 June 2026, 12:28 (UTC+5:30)
+Last updated 17 June 2026, 12:29 (UTC+5:30)Refresh complete
